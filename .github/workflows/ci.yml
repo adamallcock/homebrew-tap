@@ -1,0 +1,42 @@
+name: Cask CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate updater and cask style
+        run: |
+          set -euo pipefail
+          ruby -c scripts/update-cask.rb
+          version="$(ruby -ne 'puts $1 if $_ =~ /^  version "([^"]+)"$/' Casks/tibotattle.rb)"
+          sha256="$(ruby -ne 'puts $1 if $_ =~ /^  sha256 "([a-f0-9]+)"$/' Casks/tibotattle.rb)"
+          ruby scripts/update-cask.rb "$version" "$sha256"
+          git diff --exit-code
+          brew style Casks/tibotattle.rb
+      - name: Audit, install, and uninstall
+        run: |
+          set -euo pipefail
+          brew tap-new tibotattle/ci
+          tap_path="$(brew --repository tibotattle/ci)"
+          mkdir -p "$tap_path/Casks"
+          cp Casks/tibotattle.rb "$tap_path/Casks/tibotattle.rb"
+          brew audit --cask --online tibotattle/ci/tibotattle
+          appdir="$RUNNER_TEMP/Applications"
+          mkdir -p "$appdir"
+          brew install --cask --appdir="$appdir" tibotattle/ci/tibotattle
+          test -d "$appdir/TiboTattle.app"
+          codesign --verify --deep --strict "$appdir/TiboTattle.app"
+          brew uninstall --cask tibotattle
+          test ! -e "$appdir/TiboTattle.app"
+          brew untap tibotattle/ci

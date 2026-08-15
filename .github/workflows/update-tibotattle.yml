@@ -1,0 +1,99 @@
+name: Update TiboTattle cask
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-tibotattle-cask
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve and verify the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_json="$RUNNER_TEMP/tibotattle-release.json"
+          gh api repos/adamallcock/tibotattle/releases/latest > "$release_json"
+
+          test "$(jq -r '.draft' "$release_json")" = "false"
+          test "$(jq -r '.prerelease' "$release_json")" = "false"
+          tag="$(jq -er '.tag_name' "$release_json")"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          version="${tag#v}"
+          asset_name="TiboTattle-${version}-macOS-arm64.dmg"
+          asset_count="$(jq --arg name "$asset_name" '[.assets[] | select(.name == $name)] | length' "$release_json")"
+          test "$asset_count" = "1"
+          asset_url="$(jq -er --arg name "$asset_name" '.assets[] | select(.name == $name) | .browser_download_url' "$release_json")"
+          declared_size="$(jq -er --arg name "$asset_name" '.assets[] | select(.name == $name) | .size' "$release_json")"
+          [[ "$declared_size" =~ ^[1-9][0-9]*$ ]]
+
+          dmg="$RUNNER_TEMP/$asset_name"
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --output "$dmg" "$asset_url"
+          test "$(stat -f '%z' "$dmg")" = "$declared_size"
+          sha256="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+
+          mount_point="$(mktemp -d "$RUNNER_TEMP/tibotattle-mount.XXXXXX")"
+          mounted=0
+          cleanup() {
+            if [[ "$mounted" = "1" ]]; then
+              hdiutil detach "$mount_point" >/dev/null
+            fi
+            rmdir "$mount_point"
+          }
+          trap cleanup EXIT
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount_point"
+          mounted=1
+          test -d "$mount_point/TiboTattle.app"
+          codesign --verify --deep --strict --verbose=2 "$mount_point/TiboTattle.app"
+          spctl --assess --type execute --verbose=2 "$mount_point/TiboTattle.app"
+          xcrun stapler validate "$mount_point/TiboTattle.app"
+          hdiutil detach "$mount_point"
+          mounted=0
+          rmdir "$mount_point"
+          trap - EXIT
+
+          ruby scripts/update-cask.rb "$version" "$sha256"
+          echo "TIBOTATTLE_VERSION=$version" >> "$GITHUB_ENV"
+      - name: Audit, install, and uninstall the candidate cask
+        run: |
+          set -euo pipefail
+          ruby -c scripts/update-cask.rb
+          brew style Casks/tibotattle.rb
+          brew tap-new tibotattle/ci
+          tap_path="$(brew --repository tibotattle/ci)"
+          mkdir -p "$tap_path/Casks"
+          cp Casks/tibotattle.rb "$tap_path/Casks/tibotattle.rb"
+          brew audit --cask --online tibotattle/ci/tibotattle
+          appdir="$RUNNER_TEMP/Applications"
+          mkdir -p "$appdir"
+          brew install --cask --appdir="$appdir" tibotattle/ci/tibotattle
+          test -d "$appdir/TiboTattle.app"
+          codesign --verify --deep --strict "$appdir/TiboTattle.app"
+          brew uninstall --cask tibotattle
+          test ! -e "$appdir/TiboTattle.app"
+          brew untap tibotattle/ci
+      - name: Commit a changed cask
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Casks/tibotattle.rb; then
+            echo "Cask already matches TiboTattle $TIBOTATTLE_VERSION"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/tibotattle.rb
+          git commit -m "Update TiboTattle to $TIBOTATTLE_VERSION"
+          git push
