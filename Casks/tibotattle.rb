@@ -2,8 +2,7 @@ cask "tibotattle" do
   version "0.1.12"
   sha256 "0537b683cbb27a5ce93fffce86bb9e658900f750fd42a01eb0bf450a9623b0a6"
 
-  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-arm64.dmg",
-      verified: "github.com/adamallcock/tibotattle/"
+  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-arm64.dmg"
   name "TiboTattle"
   desc "Local-first monitor for Codex allowance usage"
   homepage "https://tibotattle.com/"
