@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
+      - name: Update Homebrew
+        run: brew update
       - name: Resolve and verify the latest release
         env:
           GH_TOKEN: ${{ github.token }}
