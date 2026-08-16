@@ -18,9 +18,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
-      - name: Update Homebrew
-        run: brew update
-      - name: Resolve and verify the latest release
+      - name: Resolve the latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -33,6 +31,30 @@ jobs:
           tag="$(jq -er '.tag_name' "$release_json")"
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
           version="${tag#v}"
+          current_version="$(ruby -e '
+            source = File.binread(ARGV.fetch(0))
+            versions = source.scan(/^  version "([^"]+)"$/).flatten
+            abort "Cask must contain exactly one version stanza" unless versions.length == 1
+            puts versions.fetch(0)
+          ' Casks/tibotattle.rb)"
+
+          echo "TIBOTATTLE_VERSION=$version" >> "$GITHUB_ENV"
+          if [[ "$current_version" == "$version" ]]; then
+            echo "TIBOTATTLE_UPDATE_NEEDED=false" >> "$GITHUB_ENV"
+            echo "Cask already records the latest TiboTattle release, $version"
+          else
+            echo "TIBOTATTLE_UPDATE_NEEDED=true" >> "$GITHUB_ENV"
+            echo "Cask $current_version needs the latest TiboTattle release, $version"
+          fi
+      - name: Update Homebrew
+        if: env.TIBOTATTLE_UPDATE_NEEDED == 'true'
+        run: brew update
+      - name: Verify the latest release and update the cask
+        if: env.TIBOTATTLE_UPDATE_NEEDED == 'true'
+        run: |
+          set -euo pipefail
+          release_json="$RUNNER_TEMP/tibotattle-release.json"
+          version="$TIBOTATTLE_VERSION"
           asset_name="TiboTattle-${version}-macOS-arm64.dmg"
           asset_count="$(jq --arg name "$asset_name" '[.assets[] | select(.name == $name)] | length' "$release_json")"
           test "$asset_count" = "1"
@@ -68,8 +90,10 @@ jobs:
           trap - EXIT
 
           ruby scripts/update-cask.rb "$version" "$sha256"
-          echo "TIBOTATTLE_VERSION=$version" >> "$GITHUB_ENV"
       - name: Audit, install, and uninstall the candidate cask
+        if: env.TIBOTATTLE_UPDATE_NEEDED == 'true'
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ruby -c scripts/update-cask.rb
@@ -88,6 +112,7 @@ jobs:
           test ! -e "$appdir/TiboTattle.app"
           brew untap tibotattle/ci
       - name: Commit a changed cask
+        if: env.TIBOTATTLE_UPDATE_NEEDED == 'true'
         run: |
           set -euo pipefail
           if git diff --quiet -- Casks/tibotattle.rb; then

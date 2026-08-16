@@ -20,6 +20,7 @@ jobs:
       - name: Validate updater and cask style
         run: |
           set -euo pipefail
+          ruby test/workflows_test.rb
           ruby -c scripts/update-cask.rb
           version="$(ruby -ne 'puts $1 if $_ =~ /^  version "([^"]+)"$/' Casks/tibotattle.rb)"
           sha256="$(ruby -ne 'puts $1 if $_ =~ /^  sha256 "([a-f0-9]+)"$/' Casks/tibotattle.rb)"
@@ -27,6 +28,8 @@ jobs:
           git diff --exit-code
           brew style Casks/tibotattle.rb
       - name: Audit, install, and uninstall
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           brew tap-new tibotattle/ci
