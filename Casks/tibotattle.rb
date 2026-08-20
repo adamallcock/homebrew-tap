@@ -1,6 +1,6 @@
 cask "tibotattle" do
-  version "0.1.12"
-  sha256 "0537b683cbb27a5ce93fffce86bb9e658900f750fd42a01eb0bf450a9623b0a6"
+  version "0.1.13"
+  sha256 "491c49f4c858acb0ef2f778b035e8823477d73ee74eb05a470e409221e4b0916"
 
   url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-arm64.dmg"
   name "TiboTattle"
