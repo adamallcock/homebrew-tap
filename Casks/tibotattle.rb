@@ -1,8 +1,11 @@
 cask "tibotattle" do
-  version "0.1.18"
-  sha256 "2ea8eca02df7cc5210b6b6ce3d6e44016bffd9d081544a4efc6fa1afeeb0f1ae"
+  arch arm: "arm64", intel: "x64"
 
-  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-arm64.dmg"
+  version "0.1.18"
+  sha256 arm:   "2ea8eca02df7cc5210b6b6ce3d6e44016bffd9d081544a4efc6fa1afeeb0f1ae",
+         intel: "70630ba90e92a1cd8cb904e66e1aebe85b04e9d23a50bef7e4e41aca84c4d2f6"
+
+  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-#{arch}.dmg"
   name "TiboTattle"
   desc "Local-first monitor for Codex allowance usage"
   homepage "https://tibotattle.com/"
@@ -13,7 +16,6 @@ cask "tibotattle" do
   end
 
   auto_updates true
-  depends_on arch: :arm64
   depends_on macos: :sonoma
 
   app "TiboTattle.app"

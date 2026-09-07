@@ -4,123 +4,196 @@ on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      force_verify:
+        description: Verify both installers even when the cask already matches
+        type: boolean
+        default: false
 
+# Only the final, main-branch-only publication job may write repository contents.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: update-tibotattle-cask
   cancel-in-progress: false
 
 jobs:
-  update:
-    runs-on: macos-15
-    timeout-minutes: 25
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.check.outputs.needed }}
+      base_commit: ${{ steps.metadata.outputs.base_commit }}
+      version: ${{ steps.metadata.outputs.version }}
+      arm64_url: ${{ steps.metadata.outputs.arm64_url }}
+      arm64_size: ${{ steps.metadata.outputs.arm64_size }}
+      arm64_sha256: ${{ steps.metadata.outputs.arm64_sha256 }}
+      intel_url: ${{ steps.metadata.outputs.intel_url }}
+      intel_size: ${{ steps.metadata.outputs.intel_size }}
+      intel_sha256: ${{ steps.metadata.outputs.intel_sha256 }}
     steps:
       - uses: actions/checkout@v7
-      - name: Resolve the latest release
+      - name: Resolve both immutable release assets
+        id: metadata
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           release_json="$RUNNER_TEMP/tibotattle-release.json"
           gh api repos/adamallcock/tibotattle/releases/latest > "$release_json"
-
-          test "$(jq -r '.draft' "$release_json")" = "false"
-          test "$(jq -r '.prerelease' "$release_json")" = "false"
-          tag="$(jq -er '.tag_name' "$release_json")"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
-          version="${tag#v}"
-          current_version="$(ruby -e '
-            source = File.binread(ARGV.fetch(0))
-            versions = source.scan(/^  version "([^"]+)"$/).flatten
-            abort "Cask must contain exactly one version stanza" unless versions.length == 1
-            puts versions.fetch(0)
-          ' Casks/tibotattle.rb)"
-
-          echo "TIBOTATTLE_VERSION=$version" >> "$GITHUB_ENV"
-          if [[ "$current_version" == "$version" ]]; then
-            echo "TIBOTATTLE_UPDATE_NEEDED=false" >> "$GITHUB_ENV"
-            echo "Cask already records the latest TiboTattle release, $version"
-          else
-            echo "TIBOTATTLE_UPDATE_NEEDED=true" >> "$GITHUB_ENV"
-            echo "Cask $current_version needs the latest TiboTattle release, $version"
-          fi
-      - name: Update Homebrew
-        if: env.TIBOTATTLE_UPDATE_NEEDED == 'true'
-        run: brew update
-      - name: Verify the latest release and update the cask
-        if: env.TIBOTATTLE_UPDATE_NEEDED == 'true'
+          ruby scripts/release-metadata.rb "$release_json" >> "$GITHUB_OUTPUT"
+          echo "base_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Check exact version, architecture layout and both digests
+        id: check
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+          ARM_SHA256: ${{ steps.metadata.outputs.arm64_sha256 }}
+          INTEL_SHA256: ${{ steps.metadata.outputs.intel_sha256 }}
+          FORCE_VERIFY: ${{ inputs.force_verify == true }}
         run: |
           set -euo pipefail
-          release_json="$RUNNER_TEMP/tibotattle-release.json"
-          version="$TIBOTATTLE_VERSION"
-          asset_name="TiboTattle-${version}-macOS-arm64.dmg"
-          asset_count="$(jq --arg name "$asset_name" '[.assets[] | select(.name == $name)] | length' "$release_json")"
-          test "$asset_count" = "1"
-          asset_url="$(jq -er --arg name "$asset_name" '.assets[] | select(.name == $name) | .browser_download_url' "$release_json")"
-          declared_size="$(jq -er --arg name "$asset_name" '.assets[] | select(.name == $name) | .size' "$release_json")"
-          [[ "$declared_size" =~ ^[1-9][0-9]*$ ]]
+          if ruby scripts/update-cask.rb --check "$VERSION" "$ARM_SHA256" "$INTEL_SHA256"; then
+            needed=false
+          else
+            result=$?
+            test "$result" = 1 || exit "$result"
+            needed=true
+          fi
+          if [[ "$FORCE_VERIFY" = true ]]; then needed=true; fi
+          echo "needed=$needed" >> "$GITHUB_OUTPUT"
 
-          dmg="$RUNNER_TEMP/$asset_name"
-          curl --fail --location --silent --show-error \
-            --retry 3 --retry-all-errors \
-            --output "$dmg" "$asset_url"
-          test "$(stat -f '%z' "$dmg")" = "$declared_size"
-          sha256="$(shasum -a 256 "$dmg" | awk '{print $1}')"
-
+  verify:
+    needs: resolve
+    if: needs.resolve.outputs.needed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Official native runner labels; uname is also checked.
+          - runner: macos-15
+            cpu: arm64
+            suffix: arm64
+          - runner: macos-15-intel
+            cpu: x86_64
+            suffix: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      ARM_SHA256: ${{ needs.resolve.outputs.arm64_sha256 }}
+      INTEL_SHA256: ${{ needs.resolve.outputs.intel_sha256 }}
+      EXPECTED_CPU: ${{ matrix.cpu }}
+      EXPECTED_SUFFIX: ${{ matrix.suffix }}
+      ASSET_URL: ${{ matrix.suffix == 'arm64' && needs.resolve.outputs.arm64_url || needs.resolve.outputs.intel_url }}
+      ASSET_SIZE: ${{ matrix.suffix == 'arm64' && needs.resolve.outputs.arm64_size || needs.resolve.outputs.intel_size }}
+      ASSET_SHA256: ${{ matrix.suffix == 'arm64' && needs.resolve.outputs.arm64_sha256 || needs.resolve.outputs.intel_sha256 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.base_commit }}
+      - name: Verify exact native installer
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "$EXPECTED_CPU"
+          dmg="$RUNNER_TEMP/TiboTattle-$VERSION-macOS-$EXPECTED_SUFFIX.dmg"
+          expected_url="https://github.com/adamallcock/tibotattle/releases/download/v$VERSION/TiboTattle-$VERSION-macOS-$EXPECTED_SUFFIX.dmg"
+          test "$ASSET_URL" = "$expected_url"
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+            --retry 3 --retry-all-errors --output "$dmg" "$ASSET_URL"
+          test "$(stat -f '%z' "$dmg")" = "$ASSET_SIZE"
+          test "$(shasum -a 256 "$dmg" | awk '{print $1}')" = "$ASSET_SHA256"
+          codesign --verify --strict --verbose=2 "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          xcrun stapler validate "$dmg"
           mount_point="$(mktemp -d "$RUNNER_TEMP/tibotattle-mount.XXXXXX")"
           mounted=0
           cleanup() {
-            if [[ "$mounted" = "1" ]]; then
-              hdiutil detach "$mount_point" >/dev/null
-            fi
+            if [[ "$mounted" = 1 ]]; then hdiutil detach "$mount_point" >/dev/null; fi
             rmdir "$mount_point"
           }
           trap cleanup EXIT
           hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount_point"
           mounted=1
-          test -d "$mount_point/TiboTattle.app"
-          codesign --verify --deep --strict --verbose=2 "$mount_point/TiboTattle.app"
-          spctl --assess --type execute --verbose=2 "$mount_point/TiboTattle.app"
-          xcrun stapler validate "$mount_point/TiboTattle.app"
+          bash scripts/verify-app.sh "$mount_point/TiboTattle.app" "$VERSION" "$EXPECTED_CPU"
           hdiutil detach "$mount_point"
           mounted=0
           rmdir "$mount_point"
           trap - EXIT
-
-          ruby scripts/update-cask.rb "$version" "$sha256"
+          ruby scripts/update-cask.rb "$VERSION" "$ARM_SHA256" "$INTEL_SHA256"
+      - name: Update Homebrew
+        run: brew update
       - name: Audit, install, and uninstall the candidate cask
-        if: env.TIBOTATTLE_UPDATE_NEEDED == 'true'
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ruby -c scripts/update-cask.rb
           brew style Casks/tibotattle.rb
           brew tap-new tibotattle/ci
           tap_path="$(brew --repository tibotattle/ci)"
+          cleanup_tap() {
+            result=$?
+            trap - EXIT
+            cleanup_result=0
+            brew untrust --cask tibotattle/ci/tibotattle || cleanup_result=$?
+            if rm -f "$tap_path/Casks/tibotattle.rb"; then
+              brew untap tibotattle/ci || cleanup_result=$?
+            else
+              cleanup_result=$?
+            fi
+            if [[ "$result" != 0 ]]; then exit "$result"; fi
+            exit "$cleanup_result"
+          }
+          trap cleanup_tap EXIT
           mkdir -p "$tap_path/Casks"
           cp Casks/tibotattle.rb "$tap_path/Casks/tibotattle.rb"
+          cmp Casks/tibotattle.rb "$tap_path/Casks/tibotattle.rb"
+          # Trust only this source-checked candidate inside the ephemeral job.
+          brew trust --cask tibotattle/ci/tibotattle
+          selection="$(brew info --cask --json=v2 tibotattle/ci/tibotattle)"
+          jq -e '.casks[0].installed == null' <<< "$selection" >/dev/null
+          test "$(jq -er '.casks[0].version' <<< "$selection")" = "$VERSION"
+          test "$(jq -er '.casks[0].url' <<< "$selection")" = "$ASSET_URL"
+          test "$(jq -er '.casks[0].sha256' <<< "$selection")" = "$ASSET_SHA256"
           brew audit --cask --online tibotattle/ci/tibotattle
-          appdir="$RUNNER_TEMP/Applications"
-          mkdir -p "$appdir"
+          appdir="$(mktemp -d "$RUNNER_TEMP/tibotattle-apps.XXXXXX")"
           brew install --cask --appdir="$appdir" tibotattle/ci/tibotattle
-          test -d "$appdir/TiboTattle.app"
-          codesign --verify --deep --strict "$appdir/TiboTattle.app"
-          brew uninstall --cask tibotattle
+          bash scripts/verify-app.sh "$appdir/TiboTattle.app" "$VERSION" "$EXPECTED_CPU"
+          brew uninstall --cask tibotattle/ci/tibotattle
           test ! -e "$appdir/TiboTattle.app"
-          brew untap tibotattle/ci
-      - name: Commit a changed cask
-        if: env.TIBOTATTLE_UPDATE_NEEDED == 'true'
+          rmdir "$appdir"
+
+  commit:
+    needs: [resolve, verify]
+    if: github.ref == 'refs/heads/main' && needs.resolve.outputs.needed == 'true' && needs.verify.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      ARM_SHA256: ${{ needs.resolve.outputs.arm64_sha256 }}
+      INTEL_SHA256: ${{ needs.resolve.outputs.intel_sha256 }}
+      EXPECTED_BASE: ${{ needs.resolve.outputs.base_commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Commit only the candidate verified on both native architectures
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_BASE"
+          test -z "$(git status --porcelain)"
+          ruby scripts/update-cask.rb "$VERSION" "$ARM_SHA256" "$INTEL_SHA256"
+          ruby scripts/update-cask.rb --check "$VERSION" "$ARM_SHA256" "$INTEL_SHA256"
           if git diff --quiet -- Casks/tibotattle.rb; then
-            echo "Cask already matches TiboTattle $TIBOTATTLE_VERSION"
+            echo "Both installers verified; the cask is unchanged"
             exit 0
           fi
+          test "$(git diff --name-only)" = Casks/tibotattle.rb
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Casks/tibotattle.rb
-          git commit -m "Update TiboTattle to $TIBOTATTLE_VERSION"
-          git push
+          git commit -m "Update TiboTattle to $VERSION for Apple silicon and Intel"
+          git push origin HEAD:main
