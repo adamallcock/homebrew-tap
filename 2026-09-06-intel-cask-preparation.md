@@ -2,10 +2,16 @@
 title: Dual-architecture TiboTattle cask preparation
 date: 2026-09-06
 type: plan
-status: prepared-local-validation-passed-native-qualification-pending
+status: publication-authorized-native-qualification-pending
 ---
 
 ## Scope and authority
+
+Update on 2026-09-07: the owner authorized native CI, cask publication and the
+website instructions, then added the product README and setup documentation.
+The preparation-only boundary below records the original 2026-09-06 scope;
+it is superseded for this explicit publication task. The public release DMGs
+remain immutable and no local application replacement is needed.
 
 Prepare one ARM/Intel cask in an isolated clone, branch
 `codex/tibotattle-intel-cask`, based on public tap main
@@ -64,3 +70,16 @@ retaining that existing behavior in the prepared workflow after both installers
 pass verification, without pushing, running or publishing it in this turn.
 Only the final gated job may have repository-write authority. Hosted native
 install/uninstall checks and actual publication are not local test passes.
+
+## Publication sequence (2026-09-07)
+
+1. Revalidate the current immutable release pair and local tests, then open the
+   tap pull request and require both native cask installation lanes to pass.
+2. Merge the qualified tap source without rewriting history. Verify published
+   architecture selection and run the guarded updater's two-asset verification.
+3. Add the same Homebrew command to the Intel website tab and update installation
+   documentation. Separate end-user installation from developer build limits.
+4. Validate the website at desktop/mobile widths, deploy through its maintained
+   wrapper from current production source, and check both live download tabs.
+5. Record exact CI/source/publication evidence. No graph, pricing, consent,
+   database, desktop release or update-feed changes belong to this task.
