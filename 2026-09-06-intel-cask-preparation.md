@@ -2,7 +2,7 @@
 title: Dual-architecture TiboTattle cask preparation
 date: 2026-09-06
 type: plan
-status: publication-authorized-native-qualification-pending
+status: native-qualified-publication-authorized
 ---
 
 ## Scope and authority
@@ -43,7 +43,7 @@ Both asset names, sizes and digests match the already-qualified release:
 Sources: [Homebrew architecture support](https://docs.brew.sh/Cask-Cookbook#handling-different-system-configurations),
 [published release](https://github.com/adamallcock/tibotattle/releases/tag/v0.1.18).
 
-## Local validation and remaining gates
+## Original preparation evidence (2026-09-06)
 
 The combined local regression suite passes 22 tests and 437 assertions without
 skips; Ruby/Bash syntax and whitespace checks pass. Regression coverage includes
@@ -83,3 +83,23 @@ install/uninstall checks and actual publication are not local test passes.
    wrapper from current production source, and check both live download tabs.
 5. Record exact CI/source/publication evidence. No graph, pricing, consent,
    database, desktop release or update-feed changes belong to this task.
+
+## Native qualification (2026-09-07)
+
+Implementation commit `785b68c7d3fcc3d9197822a58545673d58bf7117` passed both
+native Mac lanes in [cask CI](https://github.com/adamallcock/homebrew-tap/actions/runs/34141158444):
+Homebrew style, online audit, architecture selection, installation, native app
+trust inspection and uninstall. The local 22-test / 437-assertion suite was
+also repeated without failures or skips.
+
+The [forced updater verification](https://github.com/adamallcock/homebrew-tap/actions/runs/34141557913)
+then passed on both native architectures, independently checking the actual
+immutable DMG size/hash, disk-image and app signatures, Gatekeeper, stapled
+notarization tickets, bundled architectures and full cask install/uninstall.
+Its commit job correctly skipped on the non-main branch. These automated
+distribution checks do not claim interactive app execution or replace the
+desktop release's separately recorded manual-qualification boundary.
+
+Publication is authorized through [PR #2](https://github.com/adamallcock/homebrew-tap/pull/2).
+That pull request's merged state and the tap's main-branch cask are the live
+publication evidence; this document alone is not proof of publication.
