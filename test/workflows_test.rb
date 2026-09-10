@@ -161,6 +161,56 @@ class WorkflowsTest < Minitest::Test
     end
   end
 
+  def test_resolver_fetches_pinned_native_release_when_latest_is_electron
+    step = workflow.fetch("jobs").fetch("resolve").fetch("steps").find { |item| item["id"] == "metadata" }
+    assert_equal "v0.1.18", step.dig("env", "NATIVE_RELEASE_TAG")
+    Dir.mktmpdir("tibotattle-channel-test-") do |directory|
+      native = File.join(directory, "native.json")
+      File.write(native, JSON.generate(valid_release))
+      # The latest release is valid Electron metadata, not a native installer.
+      electron = valid_release
+      electron["tag_name"] = "v0.1.19"
+      electron["assets"].each do |asset|
+        asset.transform_values! { |value| value.is_a?(String) ? value.gsub("0.1.18", "0.1.19").gsub("macOS-", "mac-") : value }
+      end
+      latest = File.join(directory, "latest.json")
+      File.write(latest, JSON.generate(electron))
+      gh = File.join(directory, "gh")
+      File.write(gh, <<~'SH')
+        #!/bin/bash
+        set -euo pipefail
+        printf '%s\n' "$*" >> "$GH_CALLS"
+        case "$*" in
+          'api repos/adamallcock/tibotattle/releases/tags/v0.1.18') cat "$NATIVE_FIXTURE";;
+          'api repos/adamallcock/tibotattle/releases/latest') cat "$LATEST_FIXTURE";;
+          *) exit 19;;
+        esac
+      SH
+      File.chmod(0o700, gh)
+      output = File.join(directory, "output")
+      calls = File.join(directory, "calls")
+      env = { "PATH" => "#{directory}:#{ENV.fetch('PATH')}", "RUNNER_TEMP" => directory,
+        "NATIVE_RELEASE_TAG" => step.fetch("env").fetch("NATIVE_RELEASE_TAG"),
+        "GITHUB_OUTPUT" => output, "GH_CALLS" => calls, "NATIVE_FIXTURE" => native, "LATEST_FIXTURE" => latest }
+      _stdout, stderr, status = Open3.capture3(env, "bash", "-c", step.fetch("run"), chdir: ROOT.to_s)
+      assert status.success?, stderr
+      values = File.readlines(output).to_h { |line| line.strip.split("=", 2) }
+      assert_equal "0.1.18", values.fetch("version")
+      assert_equal "a" * 64, values.fetch("arm64_sha256")
+      assert_equal "b" * 64, values.fetch("intel_sha256")
+      assert_equal ["api repos/adamallcock/tibotattle/releases/tags/v0.1.18"], File.readlines(calls, chomp: true)
+      stdout, _stderr, result = run_metadata(electron)
+      assert_equal 2, result.exitstatus
+      assert_empty stdout
+    end
+  end
+
+  def test_native_livecheck_does_not_advertise_an_automatic_electron_upgrade
+    cask = ROOT.join("Casks/tibotattle.rb").read
+    assert_includes cask, 'skip "Native channel stays on 0.1.18; use tibotattle.com for guided Electron migration"'
+    refute_includes cask, 'strategy :github_latest'
+  end
+
   def test_release_metadata_emits_both_exact_asset_digests_and_sizes
     stdout, stderr, status = run_metadata(valid_release)
     assert status.success?, stderr

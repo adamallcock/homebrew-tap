@@ -13,7 +13,7 @@ module TiboTattleCaskUpdater
   ARCH_STANZA = '  arch arm: "arm64", intel: "x64"'
   LEGACY_URL = '  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-arm64.dmg"'
   DUAL_URL = '  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-#{arch}.dmg"'
-  LIVECHECK_STANZA = "  livecheck do\n    url :url\n    strategy :github_latest\n  end\n"
+  LIVECHECK_STANZA = "  livecheck do\n    skip \"Native channel stays on 0.1.18; use tibotattle.com for guided Electron migration\"\n  end\n"
   OWNED_DECLARATIONS = %w[version sha256 arch url depends_on livecheck].freeze
 
   # Only the reviewed declaration spellings are supported. Ruby's lexer also
@@ -22,8 +22,8 @@ module TiboTattleCaskUpdater
   def self.validate_declarations(source)
     raise ArgumentError, "Cask must contain valid Ruby syntax" unless Ripper.sexp(source)
 
-    # This one reviewed nested URL is not a second download declaration. A
-    # duplicate or modified livecheck block remains visible and is refused.
+    # Exclude only the reviewed native-channel livecheck block. A duplicate
+    # or modified block remains visible and is refused.
     declarations = source.sub(LIVECHECK_STANZA, "")
     lines = declarations.lines.map(&:chomp)
     canonical_lines = [ARCH_STANZA, LEGACY_URL, DUAL_URL,
