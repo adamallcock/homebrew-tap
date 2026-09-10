@@ -1,8 +1,9 @@
 # Homebrew tap for TiboTattle
 
-This tap distributes the same signed and notarized TiboTattle Mac app published
-at [tibotattle.com](https://tibotattle.com/) and in
-[GitHub Releases](https://github.com/adamallcock/tibotattle/releases).
+This tap distributes the signed and notarized **native Mac app, version 0.1.18**.
+The unified Electron app, version 0.1.19 and later, is available at
+[tibotattle.com](https://tibotattle.com/). Follow the website’s guided migration
+to move an existing native installation to Electron.
 
 ## Install
 
@@ -36,8 +37,13 @@ Device Reset…** diagnostic flow if those credentials must be reset.
 
 ## Release updates
 
-The `update-tibotattle.yml` workflow checks the latest immutable, non-draft,
-non-prerelease TiboTattle GitHub Release. It requires both exact native DMGs,
+The `update-tibotattle.yml` workflow checks the explicitly pinned native release
+`v0.1.18`, which must be immutable, non-draft and non-prerelease. It does not
+follow GitHub’s latest release, which now belongs to Electron. Homebrew livecheck
+is also disabled for this frozen native channel. Moving the cask to Electron
+requires a separate migration change; do not just change its installer names.
+
+The workflow requires both exact native DMGs,
 their declared sizes and SHA-256 digests, and verifies each architecture on a
 matching macOS runner. Signature, notarization, bundle identity/version, macOS
 floor, executable architecture, Homebrew audit, install and uninstall checks

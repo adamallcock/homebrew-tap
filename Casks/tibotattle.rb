@@ -11,8 +11,7 @@ cask "tibotattle" do
   homepage "https://tibotattle.com/"
 
   livecheck do
-    url :url
-    strategy :github_latest
+    skip "Native channel stays on 0.1.18; use tibotattle.com for guided Electron migration"
   end
 
   auto_updates true

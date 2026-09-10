@@ -38,10 +38,12 @@ jobs:
         id: metadata
         env:
           GH_TOKEN: ${{ github.token }}
+          # Electron uses guided handover; this cask remains the native channel.
+          NATIVE_RELEASE_TAG: v0.1.18
         run: |
           set -euo pipefail
           release_json="$RUNNER_TEMP/tibotattle-release.json"
-          gh api repos/adamallcock/tibotattle/releases/latest > "$release_json"
+          gh api "repos/adamallcock/tibotattle/releases/tags/$NATIVE_RELEASE_TAG" > "$release_json"
           ruby scripts/release-metadata.rb "$release_json" >> "$GITHUB_OUTPUT"
           echo "base_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Check exact version, architecture layout and both digests

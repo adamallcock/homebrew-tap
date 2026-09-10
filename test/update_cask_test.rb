@@ -132,7 +132,7 @@ class UpdateCaskTest < Minitest::Test
         original.sub("  depends_on macos: :sonoma", "  depends_on(macos: :sonoma)"),
         original.sub("  depends_on macos: :sonoma", "  depends_on macos: :sonoma, arch: :arm64"),
         original.sub("  livecheck do", "  livecheck do\n    url :url"),
-        original.sub("    strategy :github_latest", "    strategy :github_latest; url :url"),
+        original.sub("    skip ", "    url :url; skip "),
         original.sub("  livecheck do", "  livecheck do\n    strategy :github_latest\n    url :url\n  end\n\n  livecheck do"),
         original.sub("  depends_on macos: :sonoma", "  depends_on macos: :sonoma\n  if"),
       ])
