@@ -15,15 +15,41 @@ test ! -L "$plist"
 test "$(plutil -extract CFBundleIdentifier raw -o - "$plist")" = com.usagemonitor.local
 test "$(plutil -extract CFBundleShortVersionString raw -o - "$plist")" = "$expected_version"
 test "$(plutil -extract CFBundleExecutable raw -o - "$plist")" = TiboTattle
+# The first public Electron build inherited its runtime minimum. From 0.1.21,
+# bundle metadata must match the qualified macOS 14+ support floor.
+electron=0
+if [[ "$expected_version" != 0.1.18 ]]; then
+  ruby -e 'exit((ARGV[0].split(".").map(&:to_i) <=> [0, 1, 20]) == -1 ? 1 : 0)' "$expected_version"
+  electron=1
+fi
 minimum_macos="$(plutil -extract LSMinimumSystemVersion raw -o - "$plist")"
-[[ "$minimum_macos" = 14.0 || "$minimum_macos" = 14.0.0 ]] || exit 1
-for relative in Contents/MacOS/TiboTattle Contents/Resources/runtime/bin/node; do
+if [[ "$expected_version" = 0.1.20 ]]; then
+  [[ "$minimum_macos" = 12.0 || "$minimum_macos" = 12.0.0 ]] || exit 1
+else
+  [[ "$minimum_macos" = 14.0 || "$minimum_macos" = 14.0.0 ]] || exit 1
+fi
+executables=(Contents/MacOS/TiboTattle)
+if [[ "$electron" = 1 ]]; then
+  executables+=(Contents/MacOS/TiboTattleNativeHandover)
+  test -f "$app_path/Contents/Resources/app.asar"
+  test ! -L "$app_path/Contents/Resources/app.asar"
+  test -f "$app_path/Contents/Frameworks/Electron Framework.framework/Electron Framework"
+else
+  executables+=(Contents/Resources/runtime/bin/node)
+fi
+for relative in "${executables[@]}"; do
   executable="$app_path/$relative"
   test -f "$executable"
   test ! -L "$executable"
   test -x "$executable"
   test "$(lipo -archs "$executable")" = "$expected_cpu"
 done
+if [[ "$electron" = 1 ]]; then
+  credential="$app_path/Contents/Resources/native/macos-keychain.node"
+  test -f "$credential"
+  test ! -L "$credential"
+  test "$(lipo -archs "$credential")" = "$expected_cpu"
+fi
 # Dependencies may be universal, but every bundled Mach-O must contain the
 # native slice. A signed opposite-architecture helper/addon is not usable.
 binary_list="$(mktemp "${TMPDIR:-/tmp}/tibotattle-binaries.XXXXXX")"

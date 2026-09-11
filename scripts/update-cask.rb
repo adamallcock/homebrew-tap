@@ -13,6 +13,8 @@ module TiboTattleCaskUpdater
   ARCH_STANZA = '  arch arm: "arm64", intel: "x64"'
   LEGACY_URL = '  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-arm64.dmg"'
   DUAL_URL = '  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-#{arch}.dmg"'
+  ELECTRON_URL = DUAL_URL.sub("macOS-", "mac-")
+  ELECTRON_LIVECHECK_STANZA = "  livecheck do\n    url :url\n    strategy :github_latest\n  end\n"
   LIVECHECK_STANZA = "  livecheck do\n    skip \"Native channel stays on 0.1.18; use tibotattle.com for guided Electron migration\"\n  end\n"
   OWNED_DECLARATIONS = %w[version sha256 arch url depends_on livecheck].freeze
 
@@ -22,11 +24,14 @@ module TiboTattleCaskUpdater
   def self.validate_declarations(source)
     raise ArgumentError, "Cask must contain valid Ruby syntax" unless Ripper.sexp(source)
 
-    # Exclude only the reviewed native-channel livecheck block. A duplicate
-    # or modified block remains visible and is refused.
-    declarations = source.sub(LIVECHECK_STANZA, "")
+    unless source.scan(/^\s*livecheck\b/).length == 1
+      raise ArgumentError, "Cask must contain exactly one reviewed livecheck block"
+    end
+    # Exclude only one of the reviewed livecheck blocks. Duplicate or modified
+    # declarations remain invalid, including a mixed native/Electron pair.
+    declarations = source.sub(LIVECHECK_STANZA, "").sub(ELECTRON_LIVECHECK_STANZA, "")
     lines = declarations.lines.map(&:chomp)
-    canonical_lines = [ARCH_STANZA, LEGACY_URL, DUAL_URL,
+    canonical_lines = [ARCH_STANZA, LEGACY_URL, DUAL_URL, ELECTRON_URL,
                        "  depends_on arch: :arm64", "  depends_on macos: :sonoma"]
     Ripper.lex(declarations).each do |position, kind, token|
       next unless kind == :on_ident && OWNED_DECLARATIONS.include?(token)
@@ -71,11 +76,14 @@ module TiboTattleCaskUpdater
              source.lines.count { |line| line.chomp == ARCH_STANZA } == 1 &&
              source.scan(/^\s*arch\b/).length == 1 &&
              source.scan(/^\s*depends_on arch:/).empty? &&
-             source.lines.count { |line| line.chomp == DUAL_URL } == 1
+             source.lines.count { |line| [DUAL_URL, ELECTRON_URL].include?(line.chomp) } == 1
         raise ArgumentError, "Cask must contain the exact dual-architecture layout"
       end
     end
 
+    raise ArgumentError, "Electron 0.1.19 does not support automatic replacement" if version == "0.1.19"
+    electron = (target_parts <=> [0, 1, 20, 0]) >= 0
+    raise ArgumentError, "Refusing Electron layout for a native release" if !electron && source.include?(ELECTRON_URL)
     hashes = %(  sha256 arm:   "#{arm_sha256}",\n         intel: "#{intel_sha256}")
     updated = source.sub(VERSION_STANZA, %(  version "#{version}"))
     if legacy
@@ -84,6 +92,9 @@ module TiboTattleCaskUpdater
         .sub("  depends_on arch: :arm64\n", "")
     else
       updated = updated.sub(DUAL_SHA_STANZA, hashes)
+    end
+    if electron
+      updated = updated.sub(DUAL_URL, ELECTRON_URL).sub(LIVECHECK_STANZA, ELECTRON_LIVECHECK_STANZA)
     end
     updated
   end

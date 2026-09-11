@@ -144,10 +144,10 @@ class WorkflowsTest < Minitest::Test
   end
 
   def valid_release
-    version = "0.1.18"
+    version = "0.1.21"
     { "tag_name" => "v#{version}", "draft" => false, "prerelease" => false, "immutable" => true,
       "assets" => [["arm64", "a"], ["x64", "b"]].map do |suffix, hash|
-        name = "TiboTattle-#{version}-macOS-#{suffix}.dmg"
+        name = "TiboTattle-#{version}-mac-#{suffix}.dmg"
         { "name" => name, "size" => 5000, "digest" => "sha256:#{hash * 64}",
           "browser_download_url" => "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/#{name}" }
       end }
@@ -161,61 +161,40 @@ class WorkflowsTest < Minitest::Test
     end
   end
 
-  def test_resolver_fetches_pinned_native_release_when_latest_is_electron
+  def test_resolver_rejects_electron_before_021_before_emitting_results
     step = workflow.fetch("jobs").fetch("resolve").fetch("steps").find { |item| item["id"] == "metadata" }
-    assert_equal "v0.1.18", step.dig("env", "NATIVE_RELEASE_TAG")
+    refute step.fetch("env").key?("NATIVE_RELEASE_TAG")
+    assert_includes step.fetch("run"), 'gh api repos/adamallcock/tibotattle/releases/latest'
     Dir.mktmpdir("tibotattle-channel-test-") do |directory|
-      native = File.join(directory, "native.json")
-      File.write(native, JSON.generate(valid_release))
-      # The latest release is valid Electron metadata, not a native installer.
-      electron = valid_release
-      electron["tag_name"] = "v0.1.19"
-      electron["assets"].each do |asset|
-        asset.transform_values! { |value| value.is_a?(String) ? value.gsub("0.1.18", "0.1.19").gsub("macOS-", "mac-") : value }
-      end
-      latest = File.join(directory, "latest.json")
-      File.write(latest, JSON.generate(electron))
       gh = File.join(directory, "gh")
-      File.write(gh, <<~'SH')
-        #!/bin/bash
-        set -euo pipefail
-        printf '%s\n' "$*" >> "$GH_CALLS"
-        case "$*" in
-          'api repos/adamallcock/tibotattle/releases/tags/v0.1.18') cat "$NATIVE_FIXTURE";;
-          'api repos/adamallcock/tibotattle/releases/latest') cat "$LATEST_FIXTURE";;
-          *) exit 19;;
-        esac
-      SH
+      File.write(gh, "#!/bin/bash\nset -euo pipefail\ntest \"$*\" = 'api repos/adamallcock/tibotattle/releases/latest'\ncat \"$LATEST_FIXTURE\"\n")
       File.chmod(0o700, gh)
-      output = File.join(directory, "output")
-      calls = File.join(directory, "calls")
-      env = { "PATH" => "#{directory}:#{ENV.fetch('PATH')}", "RUNNER_TEMP" => directory,
-        "NATIVE_RELEASE_TAG" => step.fetch("env").fetch("NATIVE_RELEASE_TAG"),
-        "GITHUB_OUTPUT" => output, "GH_CALLS" => calls, "NATIVE_FIXTURE" => native, "LATEST_FIXTURE" => latest }
-      _stdout, stderr, status = Open3.capture3(env, "bash", "-c", step.fetch("run"), chdir: ROOT.to_s)
-      assert status.success?, stderr
-      values = File.readlines(output).to_h { |line| line.strip.split("=", 2) }
-      assert_equal "0.1.18", values.fetch("version")
-      assert_equal "a" * 64, values.fetch("arm64_sha256")
-      assert_equal "b" * 64, values.fetch("intel_sha256")
-      assert_equal ["api repos/adamallcock/tibotattle/releases/tags/v0.1.18"], File.readlines(calls, chomp: true)
-      stdout, _stderr, result = run_metadata(electron)
-      assert_equal 2, result.exitstatus
-      assert_empty stdout
+      ["0.1.19", "0.1.20", "0.1.21"].each do |version|
+        release = JSON.parse(JSON.generate(valid_release).gsub("0.1.21", version))
+        latest = File.join(directory, "latest.json"); File.write(latest, JSON.generate(release))
+        output = File.join(directory, "output"); File.write(output, "")
+        env = { "PATH" => "#{directory}:#{ENV.fetch('PATH')}", "RUNNER_TEMP" => directory,
+          "GITHUB_OUTPUT" => output, "LATEST_FIXTURE" => latest }
+        _stdout, stderr, status = Open3.capture3(env, "bash", "-c", step.fetch("run"), chdir: ROOT.to_s)
+        if version != "0.1.21"
+          assert_equal 2, status.exitstatus, stderr
+          assert_empty File.read(output)
+        else
+          assert status.success?, stderr
+          values = File.readlines(output).to_h { |line| line.strip.split("=", 2) }
+          assert_equal version, values.fetch("version")
+          assert_equal "a" * 64, values.fetch("arm64_sha256")
+          assert_equal "b" * 64, values.fetch("intel_sha256")
+        end
+      end
     end
-  end
-
-  def test_native_livecheck_does_not_advertise_an_automatic_electron_upgrade
-    cask = ROOT.join("Casks/tibotattle.rb").read
-    assert_includes cask, 'skip "Native channel stays on 0.1.18; use tibotattle.com for guided Electron migration"'
-    refute_includes cask, 'strategy :github_latest'
   end
 
   def test_release_metadata_emits_both_exact_asset_digests_and_sizes
     stdout, stderr, status = run_metadata(valid_release)
     assert status.success?, stderr
     values = stdout.lines.to_h { |line| line.strip.split("=", 2) }
-    assert_equal "0.1.18", values.fetch("version")
+    assert_equal "0.1.21", values.fetch("version")
     assert_equal "a" * 64, values.fetch("arm64_sha256")
     assert_equal "b" * 64, values.fetch("intel_sha256")
     assert_equal "5000", values.fetch("intel_size")
@@ -225,6 +204,8 @@ class WorkflowsTest < Minitest::Test
   def test_release_metadata_refuses_incomplete_ambiguous_or_mutable_release_before_any_output
     mutations = [
       ->(r) { r["assets"].pop },
+      ->(r) { r["assets"].each { |asset| asset["name"] = asset["name"].sub("mac-", "macOS-") } },
+      ->(r) { r["tag_name"] = "v0.1.19" },
       ->(r) { r["assets"] << r["assets"].last.dup },
       ->(r) { r["assets"].last["digest"] = nil },
       ->(r) { r["assets"].last["digest"] = "sha256:#{"A" * 64}" },
@@ -260,7 +241,7 @@ class WorkflowsTest < Minitest::Test
   def test_native_app_verifier_checks_identity_version_minimum_os_main_node_arch_and_signature
     Dir.mktmpdir("tibotattle-native-fixture-") do |directory|
       app = File.join(directory, "TiboTattle.app")
-      ["Contents/Info.plist", "Contents/MacOS/TiboTattle", "Contents/Resources/runtime/bin/node", "Contents/Frameworks/Fixture.framework/Fixture"].each do |path|
+      ["Contents/Info.plist", "Contents/MacOS/TiboTattle", "Contents/Resources/runtime/bin/node", "Contents/Frameworks/Fixture.framework/Fixture", "Contents/MacOS/TiboTattleNativeHandover", "Contents/Resources/native/macos-keychain.node", "Contents/Resources/app.asar", "Contents/Frameworks/Electron Framework.framework/Electron Framework"].each do |path|
         destination = File.join(app, path)
         FileUtils.mkdir_p(File.dirname(destination))
         File.write(destination, "synthetic")
@@ -285,6 +266,8 @@ class WorkflowsTest < Minitest::Test
             esac;;
           lipo)
             case "$2" in
+              */TiboTattleNativeHandover) printf '%s\n' "${NODE_CPU:-$CPU}";;
+              */macos-keychain.node) printf '%s\n' "${CREDENTIAL_CPU:-$CPU}";;
               */node) printf '%s\n' "${NODE_CPU:-$CPU}";;
               */Fixture.framework/Fixture) printf '%s\n' "${DEPENDENCY_CPU:-$CPU}";;
               *) printf '%s\n' "${MAIN_CPU:-$CPU}";;
@@ -302,11 +285,14 @@ class WorkflowsTest < Minitest::Test
         File.write(path, "#!/bin/bash\n#{body}")
         File.chmod(0o700, path)
       end
+      %w[0.1.18 0.1.20 0.1.21].each do |version|
       %w[arm64 x86_64].each do |cpu|
+        minimum_os = version == "0.1.20" ? "12.0" : "14.0"
         [
           [{}, true], [{ "IDENTIFIER" => "wrong.identifier" }, false], [{ "VERSION" => "0.1.17" }, false],
           [{ "MIN_OS" => "15.0" }, false], [{ "MIN_OS" => "13.0" }, false],
-          [{ "MIN_OS" => "14.0.0" }, true], [{ "MAIN_CPU" => "arm64 x86_64" }, false],
+          [{ "MIN_OS" => minimum_os + ".0" }, true],
+          [{ "MIN_OS" => minimum_os == "14.0" ? "12.0" : "14.0" }, false], [{ "MAIN_CPU" => "arm64 x86_64" }, false],
           [{ "NODE_CPU" => cpu == "arm64" ? "x86_64" : "arm64" }, false],
           [{ "DEPENDENCY_CPU" => "arm64 x86_64" }, true],
           [{ "DEPENDENCY_CPU" => cpu == "arm64" ? "x86_64" : "arm64" }, false],
@@ -316,25 +302,42 @@ class WorkflowsTest < Minitest::Test
         ].each do |overrides, expected|
           log = File.join(directory, "verify-log")
           File.write(log, "")
-          env = { "PATH" => "#{bin}:#{ENV.fetch('PATH')}", "CPU" => cpu, "VERIFY_LOG" => log }.merge(overrides)
-          _stdout, stderr, status = Open3.capture3(env, "bash", ROOT.join("scripts/verify-app.sh").to_s, app, "0.1.18", cpu)
+          env = { "PATH" => "#{bin}:#{ENV.fetch('PATH')}", "CPU" => cpu, "VERSION" => version, "MIN_OS" => minimum_os, "VERIFY_LOG" => log }.merge(overrides)
+          _stdout, stderr, status = Open3.capture3(env, "bash", ROOT.join("scripts/verify-app.sh").to_s, app, version, cpu)
           assert_equal expected, status.success?, "#{cpu} #{overrides}: #{stderr}"
           if expected
             calls = File.readlines(log).map { |line| fields = line.chomp.split("|"); [fields.shift, fields] }
-            assert_equal 3, calls.count { |command, _| command == "lipo" }
+            assert_equal version == "0.1.18" ? 3 : 4, calls.count { |command, _| command == "lipo" }
             assert_equal %w[codesign spctl xcrun], calls.last(3).map(&:first)
             assert_equal ["stapler", "validate", app], calls.last.last
           end
         end
-        %w[Contents/MacOS/TiboTattle Contents/Resources/runtime/bin/node].each do |relative|
+        executable_paths = ["Contents/MacOS/TiboTattle", version == "0.1.18" ? "Contents/Resources/runtime/bin/node" : "Contents/MacOS/TiboTattleNativeHandover"]
+        executable_paths.each do |relative|
           executable = File.join(app, relative)
           File.chmod(0o600, executable)
-          env = { "PATH" => "#{bin}:#{ENV.fetch('PATH')}", "CPU" => cpu,
+          env = { "PATH" => "#{bin}:#{ENV.fetch('PATH')}", "CPU" => cpu, "VERSION" => version, "MIN_OS" => minimum_os,
             "VERIFY_LOG" => File.join(directory, "nonexecutable-log") }
-          _stdout, stderr, status = Open3.capture3(env, "bash", ROOT.join("scripts/verify-app.sh").to_s, app, "0.1.18", cpu)
+          _stdout, stderr, status = Open3.capture3(env, "bash", ROOT.join("scripts/verify-app.sh").to_s, app, version, cpu)
           refute status.success?, "Non-executable #{relative}: #{stderr}"
           File.chmod(0o700, executable)
         end
+        if version != "0.1.18"
+          ["Contents/Resources/native/macos-keychain.node", "Contents/Resources/app.asar", "Contents/Frameworks/Electron Framework.framework/Electron Framework"].each do |relative|
+            resource = File.join(app, relative)
+            File.rename(resource, resource + ".preserved")
+            env = { "PATH" => "#{bin}:#{ENV.fetch('PATH')}", "CPU" => cpu, "VERSION" => version, "MIN_OS" => minimum_os,
+              "VERIFY_LOG" => File.join(directory, "missing-resource-log") }
+            _stdout, stderr, status = Open3.capture3(env, "bash", ROOT.join("scripts/verify-app.sh").to_s, app, version, cpu)
+            refute status.success?, "Missing Electron #{relative}: #{stderr}"
+            File.rename(resource + ".preserved", resource)
+          end
+          env = { "PATH" => "#{bin}:#{ENV.fetch('PATH')}", "CPU" => cpu, "VERSION" => version, "MIN_OS" => minimum_os,
+            "CREDENTIAL_CPU" => cpu == "arm64" ? "x86_64" : "arm64", "VERIFY_LOG" => File.join(directory, "credential-log") }
+          _stdout, stderr, status = Open3.capture3(env, "bash", ROOT.join("scripts/verify-app.sh").to_s, app, version, cpu)
+          refute status.success?, "Opposite-architecture credential adapter: #{stderr}"
+        end
+      end
       end
     end
   end

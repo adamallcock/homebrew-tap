@@ -70,7 +70,7 @@ jobs:
           selection="$(brew info --cask --json=v2 tibotattle/ci/tibotattle)"
           jq -e '.casks[0].installed == null' <<< "$selection" >/dev/null
           version="$(jq -er '.casks[0].version' <<< "$selection")"
-          expected_url="https://github.com/adamallcock/tibotattle/releases/download/v$version/TiboTattle-$version-macOS-$EXPECTED_SUFFIX.dmg"
+          expected_url="https://github.com/adamallcock/tibotattle/releases/download/v$version/TiboTattle-$version-mac-$EXPECTED_SUFFIX.dmg"
           test "$(jq -er '.casks[0].url' <<< "$selection")" = "$expected_url"
           brew audit --cask --online tibotattle/ci/tibotattle
           appdir="$(mktemp -d "$RUNNER_TEMP/tibotattle-apps.XXXXXX")"

@@ -1,17 +1,18 @@
 cask "tibotattle" do
   arch arm: "arm64", intel: "x64"
 
-  version "0.1.18"
-  sha256 arm:   "2ea8eca02df7cc5210b6b6ce3d6e44016bffd9d081544a4efc6fa1afeeb0f1ae",
-         intel: "70630ba90e92a1cd8cb904e66e1aebe85b04e9d23a50bef7e4e41aca84c4d2f6"
+  version "0.1.21"
+  sha256 arm:   "0afab510adf250775e1401307b547cee1a7955e1d7ec8dce9852cc4ca143c7e2",
+         intel: "50960e1aac65eb2673a7634a18bf123b604680f2a526822a0ccccc1d3b0b52e4"
 
-  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-macOS-#{arch}.dmg"
+  url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-mac-#{arch}.dmg"
   name "TiboTattle"
   desc "Local-first monitor for Codex allowance usage"
   homepage "https://tibotattle.com/"
 
   livecheck do
-    skip "Native channel stays on 0.1.18; use tibotattle.com for guided Electron migration"
+    url :url
+    strategy :github_latest
   end
 
   auto_updates true

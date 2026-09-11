@@ -1,9 +1,9 @@
 # Homebrew tap for TiboTattle
 
-This tap distributes the signed and notarized **native Mac app, version 0.1.18**.
-The unified Electron app, version 0.1.19 and later, is available at
-[tibotattle.com](https://tibotattle.com/). Follow the website’s guided migration
-to move an existing native installation to Electron.
+This tap distributes the signed and notarized **TiboTattle desktop app** for Mac.
+Starting with version 0.1.20, the app automatically carries over retained native
+Mac history and settings when first opened. Quit the old app before upgrading;
+no manual app backup or intermediate version is needed.
 
 ## Install
 
@@ -12,9 +12,10 @@ brew install --cask adamallcock/tap/tibotattle
 ```
 
 The cask supports Apple silicon and Intel Macs running macOS 14 Sonoma
-or later. Homebrew selects the matching native DMG and its separate checksum;
-both architectures use the same command above. The cask preserves each app's
-signed Sparkle update channel and does not require a Universal 2 installer.
+or later. Homebrew selects the matching DMG and its separate checksum; both architectures
+use the same command above. The app uses its signed Electron update channel.
+Existing Homebrew installations can use `brew upgrade --cask tibotattle`, then
+open TiboTattle to complete the automatic migration.
 
 ## Uninstall
 
@@ -24,30 +25,31 @@ Remove the app while preserving its local state:
 brew uninstall --cask tibotattle
 ```
 
-The optional zap removes only TiboTattle's Application Support data, caches,
-WebKit storage, and preferences:
+The optional zap retains its existing native-data cleanup scope: the old
+`Usage Monitor` Application Support directory, native caches, WebKit storage
+and preferences. It does not remove the Electron profile or migration backups:
 
 ```bash
 brew uninstall --cask --zap tibotattle
 ```
 
 Zap never touches `~/.codex` and deliberately preserves TiboTattle's Keychain
-identities and device credentials. Use the app's two-confirmation **Identity &
-Device Reset…** diagnostic flow if those credentials must be reset.
+identities and device credentials. Normal upgrades and uninstalls preserve all
+local data; `--zap` is a separate, explicitly requested native-data cleanup.
 
 ## Release updates
 
-The `update-tibotattle.yml` workflow checks the explicitly pinned native release
-`v0.1.18`, which must be immutable, non-draft and non-prerelease. It does not
-follow GitHub’s latest release, which now belongs to Electron. Homebrew livecheck
-is also disabled for this frozen native channel. Moving the cask to Electron
-requires a separate migration change; do not just change its installer names.
+The `update-tibotattle.yml` workflow follows the latest immutable, non-draft,
+non-prerelease GitHub release. The first eligible Electron version is 0.1.21;
+0.1.19 requires manual migration, and 0.1.20 declares an incorrect minimum macOS
+version in its bundle metadata. Both are refused. Homebrew livecheck
+follows the same stable release source.
 
-The workflow requires both exact native DMGs,
-their declared sizes and SHA-256 digests, and verifies each architecture on a
-matching macOS runner. Signature, notarization, bundle identity/version, macOS
-floor, executable architecture, Homebrew audit, install and uninstall checks
-must all pass before automatic publication.
+The workflow requires both exact Electron DMGs, their declared sizes and SHA-256
+digests, and verifies each architecture on a matching macOS runner. Signature,
+notarization, bundle identity/version, macOS floor, executable architecture,
+native migration helper, Keychain adapter, Homebrew audit, install and uninstall
+checks must all pass before automatic publication.
 
 The inexpensive current-state check compares the version, architecture layout
 and both checksums. It therefore detects missing Intel support or stale hashes
