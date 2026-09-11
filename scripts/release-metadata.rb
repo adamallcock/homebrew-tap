@@ -12,11 +12,12 @@ begin
   tag = release.fetch("tag_name")
   raise "Invalid release tag" unless tag.is_a?(String) && /\Av[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?\z/.match?(tag)
   version = tag.delete_prefix("v")
+  raise "Electron automatic replacement requires version 0.1.20 or later" if (version.split(".").map(&:to_i) <=> [0, 1, 20]) == -1
   assets = release.fetch("assets")
   raise "Invalid assets" unless assets.is_a?(Array)
   output = { "version" => version }
   { "arm64" => "arm64", "intel" => "x64" }.each do |key, suffix|
-    name = "TiboTattle-#{version}-macOS-#{suffix}.dmg"
+    name = "TiboTattle-#{version}-mac-#{suffix}.dmg"
     matches = assets.select { |asset| asset.is_a?(Hash) && asset["name"] == name }
     raise "Expected exactly one #{suffix} installer" unless matches.length == 1
     asset = matches.fetch(0)

@@ -14,6 +14,8 @@ class UpdateCaskTest < Minitest::Test
     # Stable version fixture: future legitimate cask bumps must not turn these
     # same-version and downgrade regressions into accidental downgrade tests.
     ROOT.join("Casks/tibotattle.rb").binread.sub(TiboTattleCaskUpdater::VERSION_STANZA, '  version "0.1.18"')
+      .sub(TiboTattleCaskUpdater::ELECTRON_URL, TiboTattleCaskUpdater::DUAL_URL)
+      .sub(TiboTattleCaskUpdater::ELECTRON_LIVECHECK_STANZA, TiboTattleCaskUpdater::LIVECHECK_STANZA)
   end
 
   def legacy
@@ -32,10 +34,19 @@ class UpdateCaskTest < Minitest::Test
   end
 
   def test_updates_both_hashes_and_preserves_unrelated_install_and_data_contract
-    updated = TiboTattleCaskUpdater.render(source, "0.1.19", ARM, INTEL)
-    assert_includes updated, '  version "0.1.19"'
+    updated = TiboTattleCaskUpdater.render(source, "0.1.20", ARM, INTEL)
+    assert_includes updated, '  version "0.1.20"'
     assert_includes updated, %(  sha256 arm:   "#{ARM}",\n         intel: "#{INTEL}")
-    assert_equal source.split("  name ", 2).last, updated.split("  name ", 2).last
+    assert_equal source.split("  name ", 2).last.sub(TiboTattleCaskUpdater::LIVECHECK_STANZA, TiboTattleCaskUpdater::ELECTRON_LIVECHECK_STANZA), updated.split("  name ", 2).last
+  end
+
+  def test_refuses_019_and_migrates_native_layout_to_electron_020
+    assert_raises(ArgumentError) { TiboTattleCaskUpdater.render(source, "0.1.19", ARM, INTEL) }
+    updated = TiboTattleCaskUpdater.render(source, "0.1.20", ARM, INTEL)
+    assert_includes updated, TiboTattleCaskUpdater::ELECTRON_URL
+    assert_includes updated, 'strategy :github_latest'
+    refute_includes updated, 'guided Electron migration'
+    assert_equal updated, TiboTattleCaskUpdater.render(updated, "0.1.20", ARM, INTEL)
   end
 
   def test_same_version_legacy_layout_is_upgraded_without_losing_uninstall_scope
@@ -64,17 +75,17 @@ class UpdateCaskTest < Minitest::Test
   end
 
   def test_idempotent_update_does_not_replace_inode
-    with_cask(TiboTattleCaskUpdater.render(source, "0.1.19", ARM, INTEL)) do |path|
+    with_cask(TiboTattleCaskUpdater.render(source, "0.1.20", ARM, INTEL)) do |path|
       before = path.stat
-      assert_equal 0, TiboTattleCaskUpdater.update(path, "0.1.19", ARM, INTEL)
+      assert_equal 0, TiboTattleCaskUpdater.update(path, "0.1.20", ARM, INTEL)
       assert_equal before.ino, path.stat.ino
       assert_equal before.mtime, path.stat.mtime
     end
   end
 
   def test_validates_all_arguments_before_writing
-    [["0.1.17", ARM, INTEL], ["0.1.19-rc1", ARM, INTEL], ["0.1.19\ninject", ARM, INTEL],
-     ["0.1.19", ARM.upcase, INTEL], ["0.1.19", ARM, "bad"], ["0.1.19", ARM, ""]].each do |arguments|
+    [["0.1.17", ARM, INTEL], ["0.1.20-rc1", ARM, INTEL], ["0.1.20\ninject", ARM, INTEL],
+     ["0.1.20", ARM.upcase, INTEL], ["0.1.20", ARM, "bad"], ["0.1.20", ARM, ""]].each do |arguments|
       with_cask do |path|
         original = path.binread
         assert_raises(ArgumentError) { TiboTattleCaskUpdater.update(path, *arguments) }
@@ -85,16 +96,17 @@ class UpdateCaskTest < Minitest::Test
 
   def test_rejects_ambiguous_or_malformed_layout_without_writing
     variants = [
-      source.sub('  version "0.1.18"', "  version \"0.1.18\"\n  version \"0.1.19\""),
+      source.sub('  version "0.1.18"', "  version \"0.1.18\"\n  version \"0.1.20\""),
       source.sub("  auto_updates true", "  sha256 \"#{ARM}\"\n  auto_updates true"),
       source.sub('intel: "x64"', 'intel: "arm64"'),
+      source.sub("  auto_updates true", TiboTattleCaskUpdater::ELECTRON_LIVECHECK_STANZA + "  auto_updates true"),
       source.sub("macOS-\#{arch}.dmg", "macOS-arm64.dmg"),
       source.sub("  auto_updates true", "  depends_on arch: :arm64\n  auto_updates true"),
       source.sub(/         intel: "[a-f0-9]{64}"/, '         intel: "unknown"'),
     ]
     variants.each do |invalid|
       with_cask(invalid) do |path|
-        assert_raises(ArgumentError) { TiboTattleCaskUpdater.update(path, "0.1.19", ARM, INTEL) }
+        assert_raises(ArgumentError) { TiboTattleCaskUpdater.update(path, "0.1.20", ARM, INTEL) }
         assert_equal invalid, path.binread
       end
     end
@@ -102,7 +114,7 @@ class UpdateCaskTest < Minitest::Test
 
   def test_supports_four_part_versions_with_numeric_ordering
     assert_includes TiboTattleCaskUpdater.render(source, "0.1.18.1", ARM, INTEL), 'version "0.1.18.1"'
-    newer = TiboTattleCaskUpdater.render(source, "0.1.19", ARM, INTEL)
+    newer = TiboTattleCaskUpdater.render(source, "0.1.20", ARM, INTEL)
     assert_raises(ArgumentError) { TiboTattleCaskUpdater.render(newer, "0.1.18.9", ARM, INTEL) }
   end
 
@@ -153,8 +165,8 @@ class UpdateCaskTest < Minitest::Test
   def test_preserves_unrelated_literal_fields_and_comments
     original = source.sub('  name "TiboTattle"', "  # depends_on(arch: :arm64), url, version, sha256\n  name \"TiboTattle\"")
       .sub('  desc "Local-first monitor for Codex allowance usage"', '  desc "Keywords: depends_on, arch, url, version, sha256"')
-    updated = TiboTattleCaskUpdater.render(original, "0.1.19", ARM, INTEL)
-    assert_equal original.split("  name ", 2).last, updated.split("  name ", 2).last
+    updated = TiboTattleCaskUpdater.render(original, "0.1.20", ARM, INTEL)
+    assert_equal original.split("  name ", 2).last.sub(TiboTattleCaskUpdater::LIVECHECK_STANZA, TiboTattleCaskUpdater::ELECTRON_LIVECHECK_STANZA), updated.split("  name ", 2).last
     assert_includes updated, "  # depends_on(arch: :arm64), url, version, sha256\n"
   end
 
@@ -162,11 +174,11 @@ class UpdateCaskTest < Minitest::Test
     with_cask do |path|
       link = Pathname("#{path}.link")
       File.symlink(path, link)
-      assert_raises(ArgumentError) { TiboTattleCaskUpdater.update(link, "0.1.19", ARM, INTEL) }
+      assert_raises(ArgumentError) { TiboTattleCaskUpdater.update(link, "0.1.20", ARM, INTEL) }
       original = path.binread
       temporary = Pathname("#{path}.tmp.#{$$}")
       temporary.binwrite("preserve this unrelated file")
-      assert_raises(Errno::EEXIST) { TiboTattleCaskUpdater.update(path, "0.1.19", ARM, INTEL) }
+      assert_raises(Errno::EEXIST) { TiboTattleCaskUpdater.update(path, "0.1.20", ARM, INTEL) }
       assert_equal "preserve this unrelated file", temporary.binread
       assert_equal original, path.binread
     end
