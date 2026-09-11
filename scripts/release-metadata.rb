@@ -12,7 +12,7 @@ begin
   tag = release.fetch("tag_name")
   raise "Invalid release tag" unless tag.is_a?(String) && /\Av[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?\z/.match?(tag)
   version = tag.delete_prefix("v")
-  raise "Electron automatic replacement requires version 0.1.20 or later" if (version.split(".").map(&:to_i) <=> [0, 1, 20]) == -1
+  raise "Homebrew automatic replacement requires version 0.1.21 or later" if (version.split(".").map(&:to_i) <=> [0, 1, 21]) == -1
   assets = release.fetch("assets")
   raise "Invalid assets" unless assets.is_a?(Array)
   output = { "version" => version }

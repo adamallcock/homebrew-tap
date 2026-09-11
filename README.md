@@ -40,8 +40,9 @@ local data; `--zap` is a separate, explicitly requested native-data cleanup.
 ## Release updates
 
 The `update-tibotattle.yml` workflow follows the latest immutable, non-draft,
-non-prerelease GitHub release. The first eligible Electron version is 0.1.20;
-0.1.19 is refused because it requires a manual migration. Homebrew livecheck
+non-prerelease GitHub release. The first eligible Electron version is 0.1.21;
+0.1.19 requires manual migration, and 0.1.20 declares an incorrect minimum macOS
+version in its bundle metadata. Both are refused. Homebrew livecheck
 follows the same stable release source.
 
 The workflow requires both exact Electron DMGs, their declared sizes and SHA-256

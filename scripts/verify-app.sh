@@ -15,15 +15,15 @@ test ! -L "$plist"
 test "$(plutil -extract CFBundleIdentifier raw -o - "$plist")" = com.usagemonitor.local
 test "$(plutil -extract CFBundleShortVersionString raw -o - "$plist")" = "$expected_version"
 test "$(plutil -extract CFBundleExecutable raw -o - "$plist")" = TiboTattle
-# Native and Electron report different bundle minimums; the cask still limits
-# installation to the qualified macOS 14+ support floor for both architectures.
+# The first public Electron build inherited its runtime minimum. From 0.1.21,
+# bundle metadata must match the qualified macOS 14+ support floor.
 electron=0
 if [[ "$expected_version" != 0.1.18 ]]; then
   ruby -e 'exit((ARGV[0].split(".").map(&:to_i) <=> [0, 1, 20]) == -1 ? 1 : 0)' "$expected_version"
   electron=1
 fi
 minimum_macos="$(plutil -extract LSMinimumSystemVersion raw -o - "$plist")"
-if [[ "$electron" = 1 ]]; then
+if [[ "$expected_version" = 0.1.20 ]]; then
   [[ "$minimum_macos" = 12.0 || "$minimum_macos" = 12.0.0 ]] || exit 1
 else
   [[ "$minimum_macos" = 14.0 || "$minimum_macos" = 14.0.0 ]] || exit 1

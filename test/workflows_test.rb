@@ -144,7 +144,7 @@ class WorkflowsTest < Minitest::Test
   end
 
   def valid_release
-    version = "0.1.20"
+    version = "0.1.21"
     { "tag_name" => "v#{version}", "draft" => false, "prerelease" => false, "immutable" => true,
       "assets" => [["arm64", "a"], ["x64", "b"]].map do |suffix, hash|
         name = "TiboTattle-#{version}-mac-#{suffix}.dmg"
@@ -161,7 +161,7 @@ class WorkflowsTest < Minitest::Test
     end
   end
 
-  def test_resolver_follows_latest_but_rejects_electron_019_before_emitting_results
+  def test_resolver_rejects_electron_before_021_before_emitting_results
     step = workflow.fetch("jobs").fetch("resolve").fetch("steps").find { |item| item["id"] == "metadata" }
     refute step.fetch("env").key?("NATIVE_RELEASE_TAG")
     assert_includes step.fetch("run"), 'gh api repos/adamallcock/tibotattle/releases/latest'
@@ -169,14 +169,14 @@ class WorkflowsTest < Minitest::Test
       gh = File.join(directory, "gh")
       File.write(gh, "#!/bin/bash\nset -euo pipefail\ntest \"$*\" = 'api repos/adamallcock/tibotattle/releases/latest'\ncat \"$LATEST_FIXTURE\"\n")
       File.chmod(0o700, gh)
-      ["0.1.19", "0.1.20"].each do |version|
-        release = JSON.parse(JSON.generate(valid_release).gsub("0.1.20", version))
+      ["0.1.19", "0.1.20", "0.1.21"].each do |version|
+        release = JSON.parse(JSON.generate(valid_release).gsub("0.1.21", version))
         latest = File.join(directory, "latest.json"); File.write(latest, JSON.generate(release))
         output = File.join(directory, "output"); File.write(output, "")
         env = { "PATH" => "#{directory}:#{ENV.fetch('PATH')}", "RUNNER_TEMP" => directory,
           "GITHUB_OUTPUT" => output, "LATEST_FIXTURE" => latest }
         _stdout, stderr, status = Open3.capture3(env, "bash", "-c", step.fetch("run"), chdir: ROOT.to_s)
-        if version == "0.1.19"
+        if version != "0.1.21"
           assert_equal 2, status.exitstatus, stderr
           assert_empty File.read(output)
         else
@@ -194,7 +194,7 @@ class WorkflowsTest < Minitest::Test
     stdout, stderr, status = run_metadata(valid_release)
     assert status.success?, stderr
     values = stdout.lines.to_h { |line| line.strip.split("=", 2) }
-    assert_equal "0.1.20", values.fetch("version")
+    assert_equal "0.1.21", values.fetch("version")
     assert_equal "a" * 64, values.fetch("arm64_sha256")
     assert_equal "b" * 64, values.fetch("intel_sha256")
     assert_equal "5000", values.fetch("intel_size")
@@ -285,13 +285,14 @@ class WorkflowsTest < Minitest::Test
         File.write(path, "#!/bin/bash\n#{body}")
         File.chmod(0o700, path)
       end
-      %w[0.1.18 0.1.20].each do |version|
+      %w[0.1.18 0.1.20 0.1.21].each do |version|
       %w[arm64 x86_64].each do |cpu|
-        minimum_os = version == "0.1.18" ? "14.0" : "12.0"
+        minimum_os = version == "0.1.20" ? "12.0" : "14.0"
         [
           [{}, true], [{ "IDENTIFIER" => "wrong.identifier" }, false], [{ "VERSION" => "0.1.17" }, false],
           [{ "MIN_OS" => "15.0" }, false], [{ "MIN_OS" => "13.0" }, false],
-          [{ "MIN_OS" => minimum_os + ".0" }, true], [{ "MAIN_CPU" => "arm64 x86_64" }, false],
+          [{ "MIN_OS" => minimum_os + ".0" }, true],
+          [{ "MIN_OS" => minimum_os == "14.0" ? "12.0" : "14.0" }, false], [{ "MAIN_CPU" => "arm64 x86_64" }, false],
           [{ "NODE_CPU" => cpu == "arm64" ? "x86_64" : "arm64" }, false],
           [{ "DEPENDENCY_CPU" => "arm64 x86_64" }, true],
           [{ "DEPENDENCY_CPU" => cpu == "arm64" ? "x86_64" : "arm64" }, false],
@@ -321,7 +322,7 @@ class WorkflowsTest < Minitest::Test
           refute status.success?, "Non-executable #{relative}: #{stderr}"
           File.chmod(0o700, executable)
         end
-        if version == "0.1.20"
+        if version != "0.1.18"
           ["Contents/Resources/native/macos-keychain.node", "Contents/Resources/app.asar", "Contents/Frameworks/Electron Framework.framework/Electron Framework"].each do |relative|
             resource = File.join(app, relative)
             File.rename(resource, resource + ".preserved")
