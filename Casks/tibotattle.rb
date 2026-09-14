@@ -1,9 +1,9 @@
 cask "tibotattle" do
   arch arm: "arm64", intel: "x64"
 
-  version "0.1.22"
-  sha256 arm:   "d013a6d71f4b5bec0d7c3c3347fa35105564acf8f4f71ad5d92fc5e8a81fc938",
-         intel: "6d94f6e624972d1ead26fb157f3bd05061dc7db58cee20c0650dd1d1032fcfb9"
+  version "0.1.23"
+  sha256 arm:   "6e0a9ad36a1dc8479ae7d145c545be4f1846d7a6713a5e8745aeecbf4e8a567f",
+         intel: "14c926c49e436b50fef49ff1b70b731f87cd3ec8fb673e8f743a5870cc0ae470"
 
   url "https://github.com/adamallcock/tibotattle/releases/download/v#{version}/TiboTattle-#{version}-mac-#{arch}.dmg"
   name "TiboTattle"
