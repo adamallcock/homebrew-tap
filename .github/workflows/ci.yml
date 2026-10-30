@@ -29,6 +29,14 @@ jobs:
       EXPECTED_SUFFIX: ${{ matrix.suffix }}
     steps:
       - uses: actions/checkout@v7
+      # Hosted Intel HTTP/3 ticket lookups can fail with -1005 / Error 68.
+      # https://github.com/actions/runner-images/issues/14924#issuecomment-6188826956
+      - name: Use TCP for Apple ticket validation on Intel
+        if: matrix.runner == 'macos-15-intel'
+        run: |
+          set -euo pipefail
+          echo "block return out quick proto udp from any to any port 443" | sudo pfctl -f -
+          sudo pfctl -E
       - name: Verify native runner and test the updater
         run: |
           set -euo pipefail
